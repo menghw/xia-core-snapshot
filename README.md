@@ -11,7 +11,7 @@ Directory contents
 
 click-2.0 - the Click Modular Router. This is a modified version of Click
 used for the XIA transport layer. Inforamtion on Click is available at the
-[Click Website](http:http://www.read.cs.ucla.edu/click/click)
+[Click Website](http://www.read.cs.ucla.edu/click/click)
 
 daemons - XIA network services (xroute, xhcp, xnameservice)
 
