@@ -1,0 +1,19 @@
+# our things go here
+*.o
+*.pyc
+core
+*~
+*.sw?
+!/visualizations/local_click/Visualizer.swf
+tags
+cscope.out
+*.o.cmd
+*.ko.cmd
+*.ko
+perf.data
+perf.data.old
+ethtool-*
+stat-*
+asm
+*.asm
+*.htmlTEMP
