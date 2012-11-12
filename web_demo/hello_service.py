@@ -1,11 +1,11 @@
 #!/usr/bin/python
 import socket 
-import xsocket
+import c_xsocket
 from xia_address import * 
 import random
 import sys
 import os
-from xsocket import *
+from c_xsocket import *
 
 set_conf("xsockconf_python.ini","hello_service.py")
 print_conf()
@@ -19,9 +19,9 @@ try:
         	exit(-1)
 
         # Get local AD and HID; build DAG to listen on
-        (myAD, myHID) = XreadLocalHostAddr(sock)  
+        (myAD, myHID, my4ID) = XreadLocalHostAddr(sock)  
         # Make the sDAG (the one the server listens on)
-        dag = "RE %s %s %s" % (myAD, myHID, SID_HELLO)        
+        dag = "RE %s %s %s" % (myAD, myHID, SID_HELLO)  # TODO: Update dag to include 4ID
         # Publish DAG to naming service
         XregisterName("www_s.hello.com.xia", dag)
         
@@ -40,13 +40,13 @@ try:
   	  	   #while(True):
     			replyto =  None
 			dlen = None
-        		#n = xsocket.Xrecvfrom(sock, 1500, 0, replyto, dlen)
+        		#n = c_xsocket.Xrecvfrom(sock, 1500, 0, replyto, dlen)
         		
         		n = Xrecv(accept_sock, 1500, 0)
         		
         		hello_message = "<html><body><h1>Hello World!</h1></body></html>"
 			http_header = "HTTP/1.1 200 OK\nDate: Sat, 08 Jan 2011 22:25:07 GMT\nServer: Apache/2.2.17 (Unix)\nAccess-Control-Allow-Origin: *\nCache-Control: no-cache\nConnection: close\nContent-Type:  text/html\n\n"
-        		#xsocket.Xsendto(sock, stock_feed, len(stock_feed), 0, replyto, dlen)
+        		#c_xsocket.Xsendto(sock, stock_feed, len(stock_feed), 0, replyto, dlen)
 			response = http_header+ hello_message
 			#print "response len %d" % len(response)
 			
@@ -57,4 +57,4 @@ try:
 except (KeyboardInterrupt, SystemExit), e:
        sys.exit()
 
-xsocket.Xclose(sock)
+c_xsocket.Xclose(sock)
