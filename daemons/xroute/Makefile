@@ -3,20 +3,14 @@ CC=g++
 CFLAGS1=-Wall -Wextra
 CFLAGS2=-I../../XIASocket/API
 LDFLAGS =  -lprotobuf -lpthread
-SOURCES_R0=xroute.cc csclient.cc XIARouter.cc ../../XIASocket/API/libXsocket.a
-SOURCES_R1=xroute_r1.cc csclient.cc XIARouter.cc ../../XIASocket/API/libXsocket.a
+SOURCES=xroute.cc ../common/csclient.cc ../common/XIARouter.cc ../../XIASocket/API/libXsocket.a
+XROUTE=xrouted
 
-all: xroute xroute_r0 xroute_r1
+all: $(XROUTE)
 
-xroute: $(SOURCES_R0)
-	$(CC) -o $@ $(CFLAGS2) $(SOURCES_R0) $(LDFLAGS)
-
-xroute_r0: $(SOURCES_R0)
-	$(CC) -o $@ $(CFLAGS2) $(SOURCES_R0) $(LDFLAGS)
-		
-xroute_r1: $(SOURCES_R1)
-	$(CC) -o $@ $(CFLAGS2) $(SOURCES_R1) $(LDFLAGS)	
+$(XROUTE): $(SOURCES)
+	$(CC) -o $@ $(CFLAGS2) $(SOURCES) $(LDFLAGS)
 
 clean:
-	rm xroute xroute_r0 xroute_r1
-	
+	rm $(XROUTE)
+

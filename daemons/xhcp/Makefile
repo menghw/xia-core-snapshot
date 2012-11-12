@@ -1,33 +1,19 @@
 CC=g++
 LD=g++
-CFLAGS=-I../../XIASocket/API -ggdb
+CFLAGS=-I../../XIASocket/minini -I../../XIASocket/API -ggdb
 LDFLAGS=-lprotobuf -lpthread
-SOURCES_CLIENT_H0=xhcp_client.cc csclient.cc XIARouter.cc ../../XIASocket/API/libXsocket.a
-SOURCES_CLIENT_H1=xhcp_client_h1.cc csclient.cc XIARouter.cc ../../XIASocket/API/libXsocket.a
-SOURCES_SERVER=xhcp_server.cc csclient.cc XIARouter.cc ../../XIASocket/API/libXsocket.a
+SOURCES_CLIENT=xhcp_client.cc ../common/csclient.cc ../common/XIARouter.cc ../../XIASocket/API/libXsocket.a
+SOURCES_SERVER=xhcp_server.cc ../common/csclient.cc ../common/XIARouter.cc ../../XIASocket/API/libXsocket.a
+CLIENT=xhcp_clientd
+SERVER=xhcp_serverd
 
-all: xhcp_client xhcp_server xhcp_client_h0 xhcp_server_r0 xhcp_client_h1 xhcp_server_r1
+all: $(CLIENT) $(SERVER)
 
-xhcp_client: $(SOURCES_CLIENT_H0)
-	$(CC) -o $@ $(CFLAGS) $(SOURCES_CLIENT_H0) $(LDFLAGS)
-	
-xhcp_server: $(SOURCES_SERVER)
+$(CLIENT): $(SOURCES_CLIENT)
+	$(CC) -o $@ $(CFLAGS) $(SOURCES_CLIENT) $(LDFLAGS)
+
+$(SERVER): $(SOURCES_SERVER)
 	$(CC) -o $@ $(CFLAGS) $(SOURCES_SERVER) $(LDFLAGS)
-	
-	
-xhcp_client_h0: $(SOURCES_CLIENT_H0)
-	$(CC) -o $@ $(CFLAGS) $(SOURCES_CLIENT_H0) $(LDFLAGS)
-	
-xhcp_server_r0: $(SOURCES_SERVER)
-	$(CC) -o $@ $(CFLAGS) $(SOURCES_SERVER) $(LDFLAGS)	
-	
-xhcp_client_h1: $(SOURCES_CLIENT_H1)
-	$(CC) -o $@ $(CFLAGS) $(SOURCES_CLIENT_H1) $(LDFLAGS)
-	
-xhcp_server_r1: $(SOURCES_SERVER)
-	$(CC) -o $@ $(CFLAGS) $(SOURCES_SERVER) $(LDFLAGS)		
 
 clean:
-	rm xhcp_client xhcp_server xhcp_client_h0 xhcp_server_r0 xhcp_client_h1 xhcp_server_r1
-	
-	
+	rm $(CLIENT) $(SERVER)

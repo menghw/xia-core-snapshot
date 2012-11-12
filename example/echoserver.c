@@ -18,20 +18,21 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <sys/wait.h>
 #include "Xsocket.h"
 
 #define VERSION "v1.0"
 #define TITLE "XIA Echo Server"
 
 #define MAX_XID_SIZE 100
-#define DAG  "RE %s %s %s"
+#define DAG  "RE ( %s ) %s %s %s"
 #define STREAM_NAME "www_s.stream_echo.aaa.xia"
 #define DGRAM_NAME "www_s.dgram_echo.aaa.xia"
 #define SID_STREAM  "SID:0f00000000000000000000000000000000000888"
 #define SID_DGRAM   "SID:0f00000000000000000000000000000000008888"
 
 // if no data is received from the client for this number of seconds, close the socket
-#define WAIT_FOR_DATA	20
+#define WAIT_FOR_DATA	10
 
 // global configuration options
 int verbose = 1;
@@ -43,11 +44,11 @@ int dgram = 1;
 **
 ** The dag should be free'd by the calling code when no longer needed
 */
-char *createDAG(const char *ad, const char *host, const char *service)
+char *createDAG(const char *fid, const char *ad, const char *host, const char *service)
 {
-	int len = snprintf(NULL, 0, DAG, ad, host, service) + 1;
+	int len = snprintf(NULL, 0, DAG, fid, ad, host, service) + 1;
 	char * dag = (char*)malloc(len);
-	sprintf(dag, DAG, ad, host, service);
+	sprintf(dag, DAG, fid, ad, host, service);
 	return dag;
 }
 
@@ -198,12 +199,25 @@ void process(int sock)
 	Xclose(sock);
 }
 
+static void reaper(int sig)
+{
+	if (sig == SIGCHLD) {
+		while (waitpid(0, NULL, WNOHANG) > 0)
+			;
+	}
+}
+
 void echo_stream()
 {
 	char myAD[MAX_XID_SIZE];
 	char myHID[MAX_XID_SIZE];
+	char my4ID[MAX_XID_SIZE];
 	int acceptor, sock;
 	char *dag;
+
+	if (signal(SIGCHLD, reaper) == SIG_ERR) {
+		die(-1, "unable to catch SIGCHLD");
+	}
 
 	say("Stream service started\n");
 
@@ -211,10 +225,10 @@ void echo_stream()
 		die(-2, "unable to create the stream socket\n");
 
     // read the localhost AD and HID
-    if ( XreadLocalHostAddr(acceptor, myAD, sizeof(myAD), myHID, sizeof(myHID)) < 0 )
+    if ( XreadLocalHostAddr(acceptor, myAD, sizeof(myAD), myHID, sizeof(myHID), my4ID, sizeof(my4ID)) < 0 )
     	die(-1, "Reading localhost address\n");
 
-	if (!(dag = createDAG(myAD, myHID, SID_STREAM)))
+	if (!(dag = createDAG(my4ID, myAD, myHID, SID_STREAM)))
 		die(-1, "unable to create DAG: %s\n", dag);
 	say("Created DAG: \n%s\n", dag);
 
@@ -239,7 +253,10 @@ void echo_stream()
 
 		pid_t pid = fork();
 
-		if (pid == 0) {  
+		if (pid == -1) {
+			die(-1, "FORK FAILED\n");
+
+		} else if (pid == 0) { 
 			process(sock);
 			exit(0);
 
@@ -264,6 +281,7 @@ void echo_dgram()
 	char cdag[1024]; // client's dag
 	char myAD[MAX_XID_SIZE];
 	char myHID[MAX_XID_SIZE];
+	char my4ID[MAX_XID_SIZE];
 	size_t dlen;
 	int n;
 
@@ -273,10 +291,10 @@ void echo_dgram()
 		die(-2, "unable to create the datagram socket\n");
 
     // read the localhost AD and HID
-    if ( XreadLocalHostAddr(sock, myAD, sizeof(myAD), myHID, sizeof(myHID)) < 0 )
+    if ( XreadLocalHostAddr(sock, myAD, sizeof(myAD), myHID, sizeof(myHID), my4ID, sizeof(my4ID)) < 0 )
     	die(-1, "Reading localhost address\n");
 
-	if (!(dag = createDAG(myAD, myHID, SID_DGRAM)))
+	if (!(dag = createDAG(my4ID, myAD, myHID, SID_DGRAM)))
 		die(-1, "unable to create DAG: %s\n", dag);
 	say("Created DAG: \n%s\n", dag);
 

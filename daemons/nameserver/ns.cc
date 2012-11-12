@@ -40,21 +40,21 @@ int main(int argc, char *argv[]) {
 	char sdag[NS_MAX_DAG_LENGTH];
 	char ddag[NS_MAX_DAG_LENGTH];
 	char _name[NS_MAX_DAG_LENGTH], _dag[NS_MAX_DAG_LENGTH]; 
-	char myAD[NS_MAX_DAG_LENGTH], myHID[NS_MAX_DAG_LENGTH]; 	
+	char myAD[NS_MAX_DAG_LENGTH], myHID[NS_MAX_DAG_LENGTH], my4ID[NS_MAX_DAG_LENGTH];; 	
 	string name_str, dag_str;
 	map<std::string, std::string> name_to_dag_db_table; // map name to dag 
 	bool _error; // check if any error while processing query/register
 
 	// Xsocket init
 	int sock = Xsocket(XSOCK_DGRAM);
-	if (sock < 0) { error("Opening Xsocket"); }
+	if (sock < 0) { perror("Opening Xsocket"); }
 	
     	// read the localhost HID 
-    	if ( XreadLocalHostAddr(sock, myAD, NS_MAX_DAG_LENGTH, myHID, NS_MAX_DAG_LENGTH) < 0 )
-    		error("Reading localhost address");   	
+    	if ( XreadLocalHostAddr(sock, myAD, NS_MAX_DAG_LENGTH, myHID, NS_MAX_DAG_LENGTH, my4ID, NS_MAX_DAG_LENGTH) < 0 )
+    		perror("Reading localhost address");   	
 
 	// make the src DAG (the one the nameserver process listens on)
-    	sprintf(sdag, "RE %s %s %s", myAD, myHID, SID_NS); 
+    	sprintf(sdag, "RE ( %s ) %s %s %s", my4ID, myAD, myHID, SID_NS); 
     	
 	Xbind(sock, sdag);
 	
@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
     		memset(ddag, 0, sizeof(ddag));
     		size_t ddaglen = sizeof(ddag);
    		int rc = Xrecvfrom(sock, pkt, NS_MAX_PACKET_SIZE, 0, ddag, &ddaglen);
-    		if (rc < 0) { error("recvfrom"); }
+    		if (rc < 0) { perror("recvfrom"); }
 
     		memset(_name, '\0', NS_MAX_DAG_LENGTH);
     		memset(_dag, '\0', NS_MAX_DAG_LENGTH);

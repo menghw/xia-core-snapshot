@@ -99,6 +99,7 @@ int sendLSA() {
 	bzero(buffer, 1024);	
 	/* Message format (delimiter=^)
 		message-type{Hello=0 or LSA=1}
+		router-type{XIA=0 or XIA-IPv4-Dual=1}
 		source-AD
 		source-HID
 		LSA-seq-num
@@ -110,12 +111,15 @@ int sendLSA() {
 		...		
 	*/
 	string lsa;
-	char lsa_seq[10], num_neighbors[10];
+	char lsa_seq[10], num_neighbors[10], is_dual_router[10];
 	
 	sprintf(lsa_seq, "%d", route_state.lsa_seq);
 	sprintf(num_neighbors, "%d", route_state.num_neighbors);
+	sprintf(is_dual_router, "%d", route_state.dual_router);
 	
 	lsa.append("1^");
+	lsa.append(is_dual_router);
+	lsa.append("^");	
 	lsa.append(route_state.myAD);
 	lsa.append("^");
 	lsa.append(route_state.myHID);
@@ -249,7 +253,7 @@ int processHello(const char* hello_msg) {
   	}
  	
 	route_state.networkTable[myAD] = entry;  	
-	
+
 	return 1;
 }
 
@@ -259,14 +263,14 @@ int processLSA(const char* lsa_msg) {
 	char buffer[1024]; 
 	bzero(buffer, 1024);	
 	/* Procedure:
-		0. scan this LSA
+		0. scan this LSA (mark AD with a DualRouter if there)
 		1. filter out the already seen LSA (via LSA-seq for this dest)
 		2. update the network table
 		3. rebroadcast this LSA
 	*/
 	// 0. Read this LSA
 	size_t found, start;
-	string msg, destAD, destHID, lsa_seq, num_neighbors, neighborAD, neighborHID;
+	string msg, routerType, destAD, destHID, lsa_seq, num_neighbors, neighborAD, neighborHID;
 	
 	start = 0;
 	msg = lsa_msg;
@@ -276,7 +280,15 @@ int processLSA(const char* lsa_msg) {
   	if (found!=string::npos) {
   		start = found+1;   // message-type was previously read
   	}
-  	 					
+  	
+	// read routerType
+	found=msg.find("^", start);
+  	if (found!=string::npos) {
+  		routerType = msg.substr(start, found-start);
+  		start = found+1;  // forward the search point
+  	} 
+  	int is_dual_router = atoi(routerType.c_str());	 				
+  	 	 					
 	// read destAD
 	found=msg.find("^", start);
   	if (found!=string::npos) {
@@ -306,7 +318,11 @@ int processLSA(const char* lsa_msg) {
   		start = found+1;  // forward the search point
   	} 	
   	int numNeighbors = atoi(num_neighbors.c_str());
-  	  	
+
+  	// See if this LSA comes from AD with dualRouter  	
+  	if (is_dual_router == 1) {
+  		route_state.dual_router_AD = destAD;
+  	}   
   	
   	// First, filter out the LSA originating from myself
   	string myAD = route_state.myAD;
@@ -475,7 +491,7 @@ void printRoutingTable() {
 	printf("\n\nAD Routing table at %s\n", route_state.myAD);
   	map<std::string, RouteEntry>::iterator it1;
   	for ( it1=route_state.ADrouteTable.begin() ; it1 != route_state.ADrouteTable.end(); it1++ ) {
-  		printf("Dest=%s, NextHop=%s, Port=%d, Flags=%lu \n", (it1->second.dest).c_str(), (it1->second.nextHop).c_str(), (it1->second.port), (it1->second.flags) );
+  		printf("Dest=%s, NextHop=%s, Port=%d, Flags=%u \n", (it1->second.dest).c_str(), (it1->second.nextHop).c_str(), (it1->second.port), (it1->second.flags) );
 
   	}
   	printf("\n\n");
@@ -487,6 +503,7 @@ void updateClickRoutingTable() {
 
 	int rc, port, flags;
 	string destXID, nexthopXID;
+	string default_AD("AD:-"), default_HID("HID:-"), default_4ID("IP:-"), empty_str("HID:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
 	
   	map<std::string, RouteEntry>::iterator it1;
   	for ( it1=route_state.ADrouteTable.begin() ; it1 != route_state.ADrouteTable.end(); it1++ ) {
@@ -496,10 +513,15 @@ void updateClickRoutingTable() {
 			
 		if ((rc = xr.setRoute(destXID, port, nexthopXID, 0xffff)) != 0)
 			printf("error setting route %d\n", rc);
-
+		
+		// set default AD for 4ID traffic	
+		if (route_state.dual_router==0 && destXID.compare(route_state.dual_router_AD)==0) {
+			if ((rc = xr.setRoute(default_4ID, port, nexthopXID, 0xffff)) != 0)
+				printf("error setting route %d\n", rc);
+		}	
   	}
-  	listRoutes("HID");
-	listRoutes("AD");
+  	listRoutes("AD");
+	listRoutes("HID");
 }
 
 
@@ -512,8 +534,8 @@ void initRouteState()
     	sprintf(route_state.ddag, "RE %s %s", BHID, SID_XROUTE);	
 
     	// read the localhost AD and HID
-    	if ( XreadLocalHostAddr(route_state.sock, route_state.myAD, MAX_XID_SIZE, route_state.myHID, MAX_XID_SIZE) < 0 )
-    		error("Reading localhost address");
+    	if ( XreadLocalHostAddr(route_state.sock, route_state.myAD, MAX_XID_SIZE, route_state.myHID, MAX_XID_SIZE, route_state.my4ID, MAX_XID_SIZE) < 0 )
+    		perror("Reading localhost address");
 
 	// make the src DAG (the one the routing process listens on)
     	route_state.sdag = (char*) malloc(snprintf(NULL, 0, "RE %s %s %s", route_state.myAD, route_state.myHID, SID_XROUTE) + 1);
@@ -525,12 +547,20 @@ void initRouteState()
 	route_state.hello_lsa_ratio = ceil(LSA_INTERVAL/HELLO_INTERVAL);
 	route_state.calc_dijstra_ticks = 0;
 
+	route_state.dual_router_AD = "NULL";
+	// mark if this is a dual XIA-IPv4 router
+	if( XisDualStackRouter(route_state.sock) == 1 ) {
+		route_state.dual_router = 1;
+	} else {
+		route_state.dual_router = 0;
+	}
+
 	// set timer for HELLO/LSA
 	signal(SIGALRM, timeout_handler);  
 	alarm(HELLO_INTERVAL); 	
 }
 
-int main()
+int main(int argc, char *argv[])
 {
 	int rc, x, selectRetVal, n;
     	size_t dlen, found, start;
@@ -546,13 +576,27 @@ int main()
 		return -1;
 	}
 
-	xr.setRouter("router0");
+ 	// set router name
+	if ( argc == 1 ) {
+		xr.setRouter("router0");   // Use the default API address (172.0.0.1)
+    } else if (argc == 2 || argc == 3 ) {
+		char* hostname = (char*) malloc(snprintf(NULL, 0, "%s", argv[1]) + 1);
+    	sprintf(hostname, "%s", argv[1]);
+		xr.setRouter(hostname);
+
+		if (argc == 3) {
+			set_conf("xsockconf.ini", argv[2]);
+		}
+    } else {
+		printf("Expected usage: xroute [<element name> [<API conf name>]]\n");
+	}
+
 	listRoutes("AD");
 
     	// open socket for route process
     	route_state.sock=Xsocket(XSOCK_DGRAM);
     	if (route_state.sock < 0) 
-    		error("Opening socket");
+    		perror("Opening socket");
 
     	// initialize the route states (e.g., set HELLO/LSA timer, etc)
     	initRouteState();
@@ -573,7 +617,7 @@ int main()
 			dlen = 1024;
 			n = Xrecvfrom(route_state.sock, recv_message, 1024, 0, theirDAG, &dlen);
 			if (n < 0) {
-	    			error("recvfrom");
+	    			perror("recvfrom");
 			}
 			
 			string msg = recv_message;
@@ -596,7 +640,7 @@ int main()
   						processHostRegister(msg.c_str()); 
 						break;						
 					default:
-						error("unknown routing message");
+						perror("unknown routing message");
 						break;
 				}
   			} 	

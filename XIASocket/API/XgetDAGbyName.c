@@ -16,7 +16,7 @@
 */
 /*!
  @file XgetDAGbyName.c
- @brief Implements XgetDAGbyName() and XregisterName
+ @brief Implements XgetDAGbyName(), XregisterName(), Xgetpeername() and Xgetsockname()
 */
 #include <errno.h>
 #include "Xsocket.h"
@@ -67,7 +67,7 @@ char *XgetDAGbyName(const char *name) {
     
     //Read the nameserver DAG (the one that the name-query will be sent to)
     if ( XreadNameServerDAG(sock, ns_dag) < 0 )
-    	error("Reading nameserver address");
+        perror("Reading nameserver address");
 
     //Construct a name-query packet	
     ns_pkt query_pkt;
@@ -94,7 +94,7 @@ char *XgetDAGbyName(const char *name) {
     memset(ddag, 0, sizeof(ddag));
     size_t ddaglen = sizeof(ddag);
     int rc = Xrecvfrom(sock, pkt, NS_MAX_PACKET_SIZE, 0, ddag, &ddaglen);
-    if (rc < 0) { error("recvfrom"); }
+    if (rc < 0) { perror("recvfrom"); }
 
     memset(_name, '\0', NS_MAX_DAG_LENGTH);
     memset(_dag, '\0', NS_MAX_DAG_LENGTH);
@@ -160,7 +160,7 @@ int XregisterName(const char *name, const char *DAG) {
     
     //Read the nameserver DAG (the one that the name-registration will be sent to)
     if ( XreadNameServerDAG(sock, ns_dag) < 0 )
-    	error("Reading nameserver address");	
+        perror("Reading nameserver address");
 
     //Construct a registration packet	
     ns_pkt register_pkt;
@@ -187,7 +187,7 @@ int XregisterName(const char *name, const char *DAG) {
     memset(ddag, 0, sizeof(ddag));
     size_t ddaglen = sizeof(ddag);
     int rc = Xrecvfrom(sock, pkt, NS_MAX_PACKET_SIZE, 0, ddag, &ddaglen);
-    if (rc < 0) { error("recvfrom"); }
+    if (rc < 0) { perror("recvfrom"); }
 
     memset(_name, '\0', NS_MAX_DAG_LENGTH);
     memset(_dag, '\0', NS_MAX_DAG_LENGTH);
@@ -218,3 +218,152 @@ int XregisterName(const char *name, const char *DAG) {
     return result;
 }
 	
+/*!
+** @brief Get the full DAG of the remote socket.
+**
+** @param sockfd An Xsocket of type SOCK_STREAM
+** @param dag A buffer to hold the returned DAG.
+** @param len On input contans the size of the dag buffer, 
+**  on output contains the length of the dag.
+**
+** @returns 0 on success
+** @returns -1 on failure with errno set
+** @returns errno = EFAULT if dag is NULL
+** @returns errno = EOPNOTSUPP if sockfd is not of type XSSOCK_STREAM
+** @returns errno = ENOTCONN if sockfd is not in a connected state
+**
+*/
+int Xgetpeername(int sockfd, char *dag, size_t *len)
+{
+    int rc;
+    char buf[MAXBUFLEN];
+
+    if (*len == 0)
+        return 0;
+
+    if (!dag) {
+        LOG("dag pointer is null!\n");
+        errno = EFAULT;
+        return -1;
+    }
+
+    if (validateSocket(sockfd, XSOCK_STREAM, EOPNOTSUPP) < 0) {
+        LOG("Xgetpeername is only valid with stream sockets.");
+        return -1;
+    }
+
+    if (!isConnected(sockfd)) {
+        LOGF("Socket %d is not connected", sockfd);
+        errno = ENOTCONN;
+        return -1;
+    }
+
+    xia::XSocketMsg xsm;
+    xsm.set_type(xia::XGETPEERNAME);
+
+    // send the protobuf containing the user data to click
+    if ((rc = click_control(sockfd, &xsm)) < 0) {
+        LOGF("Error talking to Click: %s", strerror(errno));
+        return -1;
+    }
+
+    // get the dag
+    if ((rc = click_reply(sockfd, buf, sizeof(buf))) < 0) {
+        LOGF("Error retrieving status from Click: %s", strerror(errno));
+        return -1;
+    }
+
+    xsm.Clear();
+    xsm.ParseFromString(buf);
+
+    if (xsm.type() != xia::XGETPEERNAME) {
+        LOGF("error: expected %d, got %d\n", xia::XGETPEERNAME, xsm.type());
+        return -1;
+    }
+
+    xia::X_GetPeername_Msg *msg = xsm.mutable_x_getpeername();
+
+    size_t dlen = msg->dag().length();
+    size_t l = MIN(dlen, *len);
+
+    memcpy(dag, msg->dag().c_str(), l);
+    dag[l] = 0;
+    *len = dlen;
+
+    return 0;
+}
+
+/*!
+** @brief Get the full DAG of the local socket.
+**
+** @param sockfd An Xsocket of type SOCK_STREAM
+** @param dag A buffer to hold the returned DAG.
+** @param len On input contans the size of the dag buffer, 
+**  on output contains the length of the dag.
+**
+** @returns 0 on success
+** @returns -1 on failure with errno set
+** @returns errno = EFAULT if dag is NULL
+** @returns errno = EOPNOTSUPP if sockfd is not of type XSSOCK_STREAM
+** @returns errno = ENOTCONN if sockfd is not in a connected state
+**
+*/
+int Xgetsockname(int sockfd, char *dag, size_t *len)
+{
+    int rc;
+    char buf[MAXBUFLEN];
+
+    if (*len == 0)
+        return 0;
+
+    if (!dag) {
+        LOG("dag pointer is null!\n");
+        errno = EFAULT;
+        return -1;
+    }
+
+    if (validateSocket(sockfd, XSOCK_STREAM, EOPNOTSUPP) < 0) {
+        LOG("Xgetsockname is only valid with stream sockets.");
+        return -1;
+    }
+
+    if (!isConnected(sockfd)) {
+        LOGF("Socket %d is not connected", sockfd);
+        errno = ENOTCONN;
+        return -1;
+    }
+
+    xia::XSocketMsg xsm;
+    xsm.set_type(xia::XGETSOCKNAME);
+
+    // send the protobuf containing the user data to click
+    if ((rc = click_control(sockfd, &xsm)) < 0) {
+        LOGF("Error talking to Click: %s", strerror(errno));
+        return -1;
+    }
+
+    // get the dag
+    if ((rc = click_reply(sockfd, buf, sizeof(buf))) < 0) {
+        LOGF("Error retrieving status from Click: %s", strerror(errno));
+        return -1;
+    }
+
+    xsm.Clear();
+    xsm.ParseFromString(buf);
+
+    if (xsm.type() != xia::XGETSOCKNAME) {
+        LOGF("error: expected %d, got %d\n", xia::XGETPEERNAME, xsm.type());
+        return -1;
+    }
+
+    xia::X_GetSockname_Msg *msg = xsm.mutable_x_getsockname();
+
+    size_t dlen = msg->dag().length();
+    size_t l = MIN(dlen, *len);
+
+    memcpy(dag, msg->dag().c_str(), l);
+    dag[l] = 0;
+    *len = dlen;
+
+    return 0;
+}

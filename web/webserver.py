@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import math
 import socket
 import sys
 import struct
@@ -7,15 +8,13 @@ import time
 import datetime
 import os
 import string
-from xsocket import *
+from c_xsocket import *
 from ctypes import *
 import hashlib
 from xia_address import *
 
 cids_by_filename = {}
-myAD = {}
-myHID = {} 
-mySID = {}
+myAD, my4ID, myHID, mySID = ('', '', '', '')
 
 def serveHTTPRequest(request, sock):
     global cids_by_filename
@@ -47,8 +46,12 @@ def serveHTTPRequest(request, sock):
         http_msg_type = "HTTP/1.1 404 Not Found\n"
 
     # Send response
-    response = http_msg_type + http_header + response_data
-    Xsend(sock, response, 0)
+    response = http_msg_type + http_header + response_data + 'DONEDONEDONE'
+    last_sent = 0
+    while last_sent < len(response):
+        base = last_sent
+        last_sent = min(len(response), last_sent + 800)
+        Xsend(sock, response[base:last_sent], 0)
 
 
 # Chunk and publish all files in the local www directory.
@@ -78,7 +81,7 @@ def put_content_in_dir(dir):
     for root, dirs, files in os.walk(dir):
         for file in files:
             if link_files_type_order.count(os.path.splitext(file)[1]) == 0 and link_files_type_order.count(os.path.splitext(file)[1][:-4]) == 0:
-                cids_by_filename[os.path.join(root,file)] = XputFile(chunk_context, os.path.join(root, file), 0)
+                cids_by_filename[os.path.join(root,file)] = XputFile(chunk_context, os.path.join(root, file), 1000)
             else:
                 files_with_links.append(os.path.join(root, file))
 
@@ -99,7 +102,7 @@ def put_content_in_dir(dir):
                         # Replace links to content we already published with CID lists
                         for key, value in cids_by_filename.iteritems():
                             # build the CID string to replace the filepath
-                            cid_string = 'xia.cid.%i.%s.%s.' % (len(value), myAD, myHID)
+                            cid_string = 'xia.cid.%i.%s.%s.%s.' % (len(value), myAD, my4ID, myHID)
                             cid_string = cid_string.replace(':', '.')
                             cid_string = "http://%s" % cid_string
                             for cid_info in value:
@@ -114,7 +117,7 @@ def put_content_in_dir(dir):
 
                         # Replace links to other html files in 'dir' with this webserver's SID
                         for linked_html_file in files_with_links:
-                            dag_url = 'http://dag/2,0/%s=0:2,1/%s=1:2/%s=2:2//%s' % (myAD, myHID, mySID, linked_html_file[5:])
+                            dag_url = 'http://dag/3,0,1/%s=0:3,2/%s=1:3,0/%s=2:3/%s=3:3//%s' % (myAD, my4ID, myHID, mySID, linked_html_file[5:])
                             
                             rel_path = os.path.relpath(linked_html_file, root)
                             # first match filepaths beginning with "./"
@@ -128,14 +131,14 @@ def put_content_in_dir(dir):
                         fnew.closed
                         
                         # publish the modified HTML file
-                        cids_by_filename_to_add[os.path.join(root,file)] = XputFile(chunk_context, os.path.join(root, file+'TEMP'), 0)
+                        cids_by_filename_to_add[os.path.join(root,file)] = XputFile(chunk_context, os.path.join(root, file+'TEMP'), 1000)
                         os.remove(os.path.join(root, file+'TEMP'))
                     orig_html_file.closed
         cids_by_filename = dict(cids_by_filename.items() + cids_by_filename_to_add.items());
 
 
 def main():
-    global myAD, myHID, mySID
+    global myAD, myHID, mySID, my4ID
     # Set up connection with click via Xsocket API
     set_conf("xsockconf_python.ini", "webserver.py")
         
@@ -146,25 +149,27 @@ def main():
             print 'webserver.py: main: error opening socket'
             return
 
-        # Get local AD and HID; build DAG to listen on
-        (myAD, myHID) = XreadLocalHostAddr(listen_sock)
+        # Get local AD, HID, and 4ID; build DAG to listen on
+        (myAD, myHID, my4ID) = XreadLocalHostAddr(listen_sock)
         mySID = SID1 # TODO: eventually this should come from a public key
 
         # TODO: When we have persistent caching, we can eliminate
     	# this and make a separate 'content publishing' app.
     	put_content_in_dir('./www')         
         
+        print '4ID: %s' % my4ID
         listen_dag_re = "RE %s %s %s" % (myAD, myHID, mySID) # dag to listen on; TODO: fix Xbind so this can be DAG format, not just RE
-        listen_dag = "DAG 2 0 - \n %s 2 1 - \n %s 2 - \n %s" % (myAD, myHID, mySID)       
+        listen_dag = "DAG 3 0 1 - \n %s 3 2 - \n %s 3 0 - \n %s 3 - \n %s" % (myAD, my4ID, myHID, mySID)
         Xbind(listen_sock, listen_dag_re)
         print 'Listening on %s' % listen_dag
 
         # Publish DAG to naming service
         XregisterName("www_s.xiaweb.com.xia", listen_dag)
+        print 'registered name'
 
 	# This is just for web demo.... publishing a CID
         imageCID = "CID:aa2fe45640e694c06dcc3331ed91998c8eb4879a"
-        image_dag = "DAG 2 0 - \n %s 2 1 - \n %s 2 - \n %s" % (myAD, myHID, imageCID)       
+        image_dag = "DAG 3 0 1 - \n %s 3 2 - \n %s 3 0 - \n %s 3 - \n %s" % (myAD, my4ID, myHID, imageCID)     
         XregisterName("www_c.airplane.com.xia", image_dag) 
        
         # TODO: use threads instead of processes?
@@ -187,4 +192,3 @@ def main():
 
 if __name__ ==  '__main__':
     main()
-

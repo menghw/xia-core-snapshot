@@ -23,7 +23,7 @@
 #include "Xinit.h"
 #include "Xutil.h"
 
-int XupdateAD(int sockfd, char *newad) {
+int XupdateAD(int sockfd, char *newad, char *new4id) {
   int rc;
 
   if (!newad) {
@@ -42,7 +42,8 @@ int XupdateAD(int sockfd, char *newad) {
   xsm.set_type(xia::XCHANGEAD);
 
   xia::X_Changead_Msg *x_changead_msg = xsm.mutable_x_changead();
-  x_changead_msg->set_dag(newad);
+  x_changead_msg->set_ad(newad);
+  x_changead_msg->set_ip4id(new4id);
   
   if ((rc = click_control(sockfd, &xsm)) < 0) {
 		LOGF("Error talking to Click: %s", strerror(errno));
@@ -70,7 +71,7 @@ int XupdateAD(int sockfd, char *newad) {
 ** @returns -1 on failure with errno set
 **
 */
-int XreadLocalHostAddr(int sockfd, char *localhostAD, unsigned lenAD, char *localhostHID, unsigned lenHID) {
+int XreadLocalHostAddr(int sockfd, char *localhostAD, unsigned lenAD, char *localhostHID, unsigned lenHID, char *local4ID, unsigned len4ID) {
   	int rc;
   	char UDPbuf[MAXBUFLEN];
   	
@@ -99,7 +100,55 @@ int XreadLocalHostAddr(int sockfd, char *localhostAD, unsigned lenAD, char *loca
 		xia::X_ReadLocalHostAddr_Msg *_msg = xsm1.mutable_x_readlocalhostaddr();
 		strncpy(localhostAD, (_msg->ad()).c_str(), lenAD);
 		strncpy(localhostHID, (_msg->hid()).c_str(), lenHID);
+		strncpy(local4ID, (_msg->ip4id()).c_str(), len4ID);
 		rc = 0;
+	} else {
+		rc = -1;
+	}	
+	return rc;
+	 
+}
+
+
+/*!
+** @tell if this node is an XIA-IPv4 dual-stack router
+**
+**
+** @param sockfd an Xsocket (may be of any type XSOCK_STREAM, etc...)
+**
+** @returns 1 if this is an XIA-IPv4 dual-stack router 
+** @returns 0 if this is an XIA router
+** @returns -1 on failure with errno set
+**
+*/
+int XisDualStackRouter(int sockfd) {
+  	int rc;
+  	char UDPbuf[MAXBUFLEN];
+  	
+ 	if (getSocketType(sockfd) == XSOCK_INVALID) {
+   	 	LOG("The socket is not a valid Xsocket");
+   	 	errno = EBADF;
+  		return -1;
+ 	}
+
+ 	xia::XSocketMsg xsm;
+  	xsm.set_type(xia::XISDUALSTACKROUTER);
+  
+  	if ((rc = click_control(sockfd, &xsm)) < 0) {
+		LOGF("Error talking to Click: %s", strerror(errno));
+		return -1;
+  	}
+
+	if ((rc = click_reply(sockfd, UDPbuf, sizeof(UDPbuf))) < 0) {
+		LOGF("Error retrieving status from Click: %s", strerror(errno));
+		return -1;
+	}
+
+	xia::XSocketMsg xsm1;
+	xsm1.ParseFromString(UDPbuf);
+	if (xsm1.type() == xia::XISDUALSTACKROUTER) {
+		xia::X_IsDualStackRouter_Msg *_msg = xsm1.mutable_x_isdualstackrouter();
+		rc = _msg->flag();
 	} else {
 		rc = -1;
 	}	

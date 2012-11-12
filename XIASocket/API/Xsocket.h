@@ -36,6 +36,9 @@
 extern "C" {
 #endif
 
+// FIXME:change this to match what the Linux implementation is using
+#define AF_XIA	9999
+
 #define MAXBUFLEN 65000 // Note that this limits the size of chunk we can receive TODO: What should this be?
 #define XIA_MAXBUF MAXBUFLEN
 #define XIA_MAXCHUNK	MAXBUFLEN
@@ -46,10 +49,10 @@ extern "C" {
 #define XSOCK_RAW	3	// Raw XIA socket
 #define XSOCK_CHUNK 4	// Content Chunk transport (CID)
 
-#define WAITING_FOR_CHUNK 0
-#define READY_TO_READ 1
-#define REQUEST_FAILED -1
-#define INVALID_HASH -2
+#define REQUEST_FAILED 0x00000001 
+#define WAITING_FOR_CHUNK 0x00000002
+#define READY_TO_READ 0x00000004
+#define INVALID_HASH 0x00000008
 
 /* Cache policy */
 #define POLICY_LRU				0x00000001
@@ -103,7 +106,7 @@ typedef struct {
 #endif
 
 //Function list
-extern int Xsendto(int sockfd,const void *buf, size_t len, int flags,char * dDAG, size_t dlen);
+extern int Xsendto(int sockfd,const void *buf, size_t len, int flags, const char * dDAG, size_t dlen);
 extern int Xrecvfrom(int sockfd,void *rbuf, size_t len, int flags, char * sDAG, size_t *dlen);
 extern int Xsocket(int transport_type);
 extern int Xconnect(int sockfd, const char* dDAG);
@@ -127,7 +130,6 @@ extern int XremoveChunk(ChunkContext *ctx, const char *cid);
 extern void XfreeChunkInfo(ChunkInfo *infoList);
 
 extern int Xaccept(int sockfd);
-extern void error(const char *msg);
 extern void set_conf(const char *filename, const char *sectioname);
 extern void print_conf();
 
@@ -137,12 +139,16 @@ extern int Xgetsockopt(int sockfd, int optname, void *optval, socklen_t *optlen)
 extern char *XgetDAGbyName(const char *name);
 extern int XregisterName(const char *name, const char *DAG);
 
-extern int XreadLocalHostAddr(int sockfd, char *localhostAD, unsigned lenAD, char *localhostHID, unsigned lenHID);
+extern int XreadLocalHostAddr(int sockfd, char *localhostAD, unsigned lenAD, char *localhostHID, unsigned lenHID, char *local4ID, unsigned len4ID);
 
 /* internal only functions */
-extern int XupdateAD(int sockfd, char *newad);
+extern int XupdateAD(int sockfd, char *newad, char *new4id);
 extern int XupdateNameServerDAG(int sockfd, char *nsDAG);
 extern int XreadNameServerDAG(int sockfd, char *nsDAG);
+extern int XisDualStackRouter(int sockfd);
+
+extern int Xgetpeername(int sockfd, char *dag, size_t *len);
+extern int Xgetsockname(int sockfd, char *dag, size_t *len);
 
 #ifdef __cplusplus
 }

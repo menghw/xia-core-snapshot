@@ -1,17 +1,15 @@
 import socket, select, random
 import struct, time, signal, os, sys, re
-#import fcntl
-from xsocket import *
+import threading
+import Tkinter
+from tkMessageBox import showwarning
+from c_xsocket import *
 from ctypes import *
 from xia_address import *
 
 XSP=1
 XDP=2
 XCHUNKP=3
-
-myAD = {}
-myHID = {} 
-mySID = {}
 
 def send_to_browser(data, browser_socket):
     try:
@@ -21,6 +19,14 @@ def send_to_browser(data, browser_socket):
         print 'ERROR: xiaproxy.py: send_to_browser: error sending data to browser'
         browser_socket.close()
         return False
+
+def warn_bad_content():
+    #os.system("python bad_content_warning.py")
+    thread = threading.Thread(target=os.system, args=("python bad_content_warning.py",))
+    thread.start()
+    #thread = threading.Thread(target=showwarning, args=("Invalid Content Hash", "Firefox received bad content"))
+    #thread.start()
+    #result = showwarning("Invalid Content Hash", "Firefox received content that does not match the reqeusted CID.")
 
 def recv_with_timeout(sock, timeout=5, transport_proto=XSP):
     # Receive data
@@ -38,8 +44,8 @@ def recv_with_timeout(sock, timeout=5, transport_proto=XSP):
                 received_data = True
             except IOError:
                 received_data = False
-            except:
-                print 'ERROR: xiaproxy.py: recv_with_timeout: error receiving data from socket'
+            except Exception, msg:
+                print 'ERROR: xiaproxy.py: recv_with_timeout: %s' % msg
     except (KeyboardInterrupt, SystemExit), e:
         Xclose(sock)
         sys.exit()
@@ -54,7 +60,7 @@ def recv_with_timeout(sock, timeout=5, transport_proto=XSP):
     	return reply, reply_dag
     
     
-def readcid_with_timeout(sock, cid, timeout=5):
+def readcid_with_timeout(sock, cid, timeout=0.1):
     # Receive data
     start_time = time.time()   # current time in seconds since the epoch
     received_data = False
@@ -62,31 +68,37 @@ def readcid_with_timeout(sock, cid, timeout=5):
     try:
         while (time.time() - start_time < timeout and not received_data):
             try:
-                if XgetChunkStatus(sock, cid) == 1:
+                status = XgetChunkStatus(sock, cid)
+                if status & READY_TO_READ == READY_TO_READ or status & INVALID_HASH == INVALID_HASH:
                     reply = XreadChunk(sock, 65521, 0, cid)
                     received_data = True
+                    if status & INVALID_HASH == INVALID_HASH:
+                        warn_bad_content()
+                        return False
             except IOError:
                 received_data = False
-            except:
-                print 'ERROR: xiaproxy.py: readcid_with_timeout: error receiving data from socket'
+            except Exception, msg:
+                print 'ERROR: xiaproxy.py: readcid_with_timeout: %s' % msg
     except (KeyboardInterrupt, SystemExit), e:
         Xclose(sock)
         sys.exit()
 
-    if (not received_data):
-        print "Recieved nothing"
+    if (not received_data):  # TIMEOUT
+        print "%s: Recieved nothing; requesting retransmit" % time.time()
+        XrequestChunk(sock, cid)
+        return readcid_with_timeout(sock, cid)
         raise IOError
 
     return reply
     
     
 
-def check_for_and_process_CIDs(dstAD, dstHID, message, browser_socket):
+def check_for_and_process_CIDs(dstAD, dst4ID, dstHID, message, browser_socket):
     rt = message.find('cid')
     if (rt!= -1):
         http_header = message[0:rt]
         try:
-            content = get_content_from_cid_list(dstAD, dstHID, message[rt:].split('.')[2])
+            content = get_content_from_cid_list(dstAD, dst4ID, dstHID, message[rt:].split('.')[2])
         except:
             print "ERROR: xiaproxy.py: check_for_and_process_CIDs: Couldn't retrieve content. Closing browser_socket"
             browser_socket.close()
@@ -253,8 +265,6 @@ def getrandSID():
     return  sid
 
 def send_sid_request(ddag, payload, browser_socket, transport_proto=XSP):
-    global myAD, myHID
-    
     # Create socket
     if transport_proto == XSP:
         sock = Xsocket(XSOCK_STREAM)
@@ -268,14 +278,9 @@ def send_sid_request(ddag, payload, browser_socket, transport_proto=XSP):
         print "ERROR: xiaproxy.py: send_sid_request: could not open socket"
         return
     
-    (myAD, myHID) = XreadLocalHostAddr(sock)
-    sid = getrandSID()
-    sdag = "DAG 0 1 - \n %s 2 - \n %s 2 - \n %s 3 - \n %s" % (myAD, IP0, myHID, sid)    
-
     try:
         if transport_proto == XSP:
             # Connect to service
-            Xbind(sock, sdag)
             status = Xconnect(sock, ddag)
             if (status != 0):
                 print "send_sid_request() Closing browser socket "
@@ -298,7 +303,10 @@ def send_sid_request(ddag, payload, browser_socket, transport_proto=XSP):
     # Receive reply and close socket
     try:
         if transport_proto == XSP:
-            reply = recv_with_timeout(sock) # Use default timeout
+            reply = ''
+            while reply.find('DONEDONEDONE') < 0:
+                reply += recv_with_timeout(sock) # Use default timeout
+            reply = reply.split('DONEDONEDONE')[0]
         elif transport_proto == XDP:
             (reply, reply_dag) = recv_with_timeout(sock, 5, XDP)
     except IOError:
@@ -314,10 +322,12 @@ def send_sid_request(ddag, payload, browser_socket, transport_proto=XSP):
     # Extract dst AD and HID from ddag	
     start_index = ddag.find('AD:')
     dstAD = ddag[start_index:start_index+3+40] 
+    start_index = ddag.find('IP:')
+    dst4ID = ddag[start_index:start_index+3+40] 
     start_index = ddag.find('HID:')
     dstHID = ddag[start_index:start_index+4+40]  
 
-    contains_CID = check_for_and_process_CIDs(dstAD, dstHID, reply, browser_socket)
+    contains_CID = check_for_and_process_CIDs(dstAD, dst4ID, dstHID, reply, browser_socket)
     if not contains_CID:
         # Pass reply up to browswer 
         rtt = int((time.time()-rtt) *1000)
@@ -327,14 +337,14 @@ def send_sid_request(ddag, payload, browser_socket, transport_proto=XSP):
     return
 
 
-def get_content_from_cid_list(dstAD, dstHID, cid_list):
+def get_content_from_cid_list(dstAD, dst4ID, dstHID, cid_list):
     num_cids = len(cid_list) / 40
     
     # make a list of ChunkStatuss
     cids = ChunkStatusArray(num_cids) # list()
     for i in range(0, num_cids):
-        content_dag = 'CID:%s' % cid_list[i*40:40+i*40]
-        content_dag = "DAG 3 0 1 - \n %s 3 2 - \n %s 3 2 - \n %s 3 - \n %s" % (dstAD, IP1, dstHID, content_dag)
+        cid = 'CID:%s' % cid_list[i*40:40+i*40]
+        content_dag = "DAG 3 0 1 - \n %s 3 2 - \n %s 3 0 - \n %s 3 - \n %s" % (dstAD, dst4ID, dstHID, cid)
         
         chunk_info = ChunkStatus()
         chunk_info.cid = content_dag
@@ -349,14 +359,6 @@ def get_content_from_cid_list(dstAD, dstHID, cid_list):
         print "ERROR: xiaproxy.py: get_content_from_cid_list: error opening socket"
         return
 
-    # create and bind to ephemeral SID
-    sid = getrandSID()
-    sdag = "DAG 0 1 - \n %s 2 - \n %s 2 - \n %s 3 - \n %s" % (myAD, IP0, myHID, sid)       
-    try:
-        Xbind(sock, sdag);
-    except:
-        print 'ERROR: xiaproxy.py: get_content_from_cid_list: Error binding to sdag'
-
     # request the list of CIDs
     try:
         XrequestChunks(sock, cids, num_cids)
@@ -367,6 +369,12 @@ def get_content_from_cid_list(dstAD, dstHID, cid_list):
     content = ""
     for i in range(0, num_cids):
         data = readcid_with_timeout(sock, cids[i].cid)
+        if data == False:  ## HACK FOR GEC!! REMOVE ME!!
+            with open('anon.jpg', 'r') as f:
+                anon_data = f.read()
+            f.closed
+            Xclose(sock)
+            return anon_data
         content += data
 
     Xclose(sock)
@@ -407,8 +415,9 @@ def xia_handler(host, path, http_header, browser_socket):
         host_array = host.split('.')
         num_chunks = int(host_array[0])
         dstAD = "AD:%s" % host_array[2]
-        dstHID = "HID:%s" % host_array[4]
-        recombined_content = get_content_from_cid_list(dstAD, dstHID, host_array[5])
+        dst4ID = "IP:%s" % host_array[4]
+        dstHID = "HID:%s" % host_array[6]
+        recombined_content = get_content_from_cid_list(dstAD, dst4ID, dstHID, host_array[7])
         length = len(recombined_content)
         send_to_browser(recombined_content, browser_socket)
     else:
@@ -423,14 +432,16 @@ def xia_handler(host, path, http_header, browser_socket):
         elif host.find('www_s.') != -1:     	
             send_sid_request(ddag, http_header, browser_socket)
         elif host.find('www_c.') != -1:     	
-    	    # Extract dst AD, HID, and CID from ddag	
-    	    start_index = ddag.find('AD:')
-            dstAD = ddag[start_index:start_index+3+40] 
-            start_index = ddag.find('HID:')
-            dstHID = ddag[start_index:start_index+4+40]  
-            start_index = ddag.find('CID:')
-            dstCID = ddag[start_index+4:start_index+4+40] 
-            recombined_content = get_content_from_cid_list(dstAD, dstHID, dstCID)
+    	    # Extract dst AD, 4ID, HID, and CID from ddag	
+    	    ad_index = ddag.find('AD:')
+            dstAD = ddag[ad_index:ad_index+3+40] 
+    	    ip_index = ddag.find('IP:')
+            dst4ID = ddag[ip_index:ip_index+3+40] 
+            hid_index = ddag.find('HID:')
+            dstHID = ddag[hid_index:hid_index+4+40]  
+            cid_index = ddag.find('CID:')
+            dstCID = ddag[cid_index+4:cid_index+4+40] 
+            recombined_content = get_content_from_cid_list(dstAD, dst4ID, dstHID, dstCID)
             length = len(recombined_content)
             send_to_browser(recombined_content, browser_socket)
     return

@@ -18,6 +18,9 @@
 
 #define HID0 "HID:0000000000000000000000000000000000000000"
 #define AD0   "AD:1000000000000000000000000000000000000000"
+#define HID2 "HID:0000000000000000000000000000000000000002"
+#define AD2   "AD:1000000000000000000000000000000000000002"
+#define IP_NS "IP:172.16.109.129"
 
 #define BHID "HID:1111111111111111111111111111111111111111"
 #define SID_XHCP "SID:1110000000000000000000000000000000001111"
@@ -26,7 +29,8 @@
 
 #define XHCP_TYPE_AD 1
 #define XHCP_TYPE_GATEWAY_ROUTER_HID 2
-#define XHCP_TYPE_NAME_SERVER_DAG 3
+#define XHCP_TYPE_GATEWAY_ROUTER_4ID 3
+#define XHCP_TYPE_NAME_SERVER_DAG 4
 
 typedef struct xhcp_pkt_entry {
 	short type;
@@ -34,8 +38,8 @@ typedef struct xhcp_pkt_entry {
 } xhcp_pkt_entry;
 
 typedef struct xhcp_pkt {
-	unsigned long seq_num;
-	unsigned short num_entries;
+	uint32_t seq_num;
+	uint16_t num_entries;
 	char data[];
 } xhcp_pkt;
 
