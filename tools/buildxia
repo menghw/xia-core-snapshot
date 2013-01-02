@@ -9,8 +9,6 @@ make -j8
 
 cd $XIADIR/XIASocket/API
 make
-#stupid hack to work around problem where not everything compiles the first time.
-make
 
 cd $XIADIR/XIASocket/sample
 make
