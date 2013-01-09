@@ -1,6 +1,10 @@
 xia-snapshot
 ============
 
+This repo was a snapshot of the XIA repository hosted at CMU. We've now moved all 
+development over to github and will be removing this snapshot once everything l
+ooks healthy.
+
 Information and instructions for use of XIA is available at the
 [XIA Wiki](http://xia.cs.cmu.edu/wiki).
 
